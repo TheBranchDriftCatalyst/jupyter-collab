@@ -1,0 +1,28 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-py"
+  // interface            = "asyncio"
+  recursive_type_depth = 5
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("PG_DATABASE_URL")
+}
+
+model Bill {
+  bill_id    String      @id @map("_id")
+  s3_id      String
+  chunk_ids  String[]    // Array of Chunk IDs
+  chunks     BillChunk[]
+}
+
+model BillChunk {
+  chunk_id          String   @id @map("_id")
+  bill_id           String   // Reference to Bill's ID
+  chunk_text        String
+  milvus_embedding_id Int
+  bill              Bill     @relation(fields: [bill_id], references: [bill_id])
+}

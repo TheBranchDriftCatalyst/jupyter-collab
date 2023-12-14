@@ -1,0 +1,15 @@
+apiVersion: skaffold/v2beta27
+kind: Config
+metadata:
+  name: jupyter-notebook-project
+build:
+  artifacts:
+  - image: my-custom-jupyter-notebook
+    context: .
+    docker:
+      dockerfile: Dockerfile
+  local: {}
+deploy:
+  docker:
+    images: [my-custom-jupyter-notebook]
+    useCompose: true
