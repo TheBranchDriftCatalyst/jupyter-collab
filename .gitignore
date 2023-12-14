@@ -1,3 +1,5 @@
 .envrc
 volumes/*
 cookies.json
+**/goodreads-data/*
+**/__pycache__
