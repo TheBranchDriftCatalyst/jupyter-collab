@@ -1,59 +1,109 @@
 import argparse
+import re
+import time
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
-
-# from multiprocessing import Queue
-import queue
-
+import multiprocessing
 import os
+from urllib.request import urlopen
+from bs4 import BeautifulSoup
+from packages.goodreads_scraper import shelves as gr_shelves
+from packages.goodreads_scraper.books import scrape_book
+from utils.expo_backoff import ExpoBackoff
+from logging import getLogger
 
-import sys
-import logging
+from utils.timer import Timer
 
-
-cwd = os.getcwd()
-repo_root = os.path.abspath(os.path.join(cwd, "../"))
-sys.path.append(repo_root)
-print(repo_root)
-
-from goodreads_scraper import shelves
-from goodreads_scraper import user
-from goodreads_scraper import books
-
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
-
-# # Create a file handler
-# log_file = "scrapper.log"
-# if os.path.exists(log_file):
-#     os.remove(log_file)
-
-# # file_handler = logging.FileHandler(log_file, mode="w")
-# # file_handler.setLevel(level=logging.DEBUG)
-
-# # Create a console handler
-console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.DEBUG)
-
-# # Create a formatter and set it for both handlers
-formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
-# # file_handler.setFormatter(formatter)
-console_handler.setFormatter(formatter)
-
-# # Add the handlers to the logger
-# # logger.addHandler(file_handler)
-logger.addHandler(console_handler)
-
-logger.debug(f"This is a debug message - {os.getcwd()}")
+# Create a logger for this module
+logger = getLogger(__name__)
 
 
-def scrape_user(args: argparse.Namespace):
-    user.get_user_info(args)
-    shelves.get_all_shelves(args)
+def construct_library(args, queue):
+    """Process 1: Scans for indexed pages and appends data to the shared queue."""
+    user_id: str = args.user_id
+    url = f"https://www.goodreads.com/user/show/{user_id}"
+    print(f"Fetching URL: {url}")
+    with ExpoBackoff().context():
+        source = urlopen(url)
+    soup = BeautifulSoup(source, "html.parser")
+
+    shelves_div = soup.find("div", {"id": "shelves"})
+
+    # This is all the shelves a user has
+    # we will process each shelf in a thread
+    shelf_links = shelves_div.findChildren("a")
+    futures = []
+    # Create a thread pool executor
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        for link in shelf_links:
+            base_url = link.attrs.get("href")
+            shelf: str = re.search(r"\?shelf=([^&]+)", base_url)[1]
+            if args.include_shelves is not None and shelf not in args.include_shelves:
+                print(f"Skipping shelf '{shelf}'")
+                continue
+            if shelf in args.exclude_shelves:
+                print(f"Skipping shelf '{shelf}'")
+                continue
+            print(f"Adding shelf '{shelf}' to thread pool.")
+            futures.append(executor.submit(gr_shelves.get_shelf, args, shelf))
+
+    for future in as_completed(futures):
+        shelf = future.result()
+        for book_proc_dto in shelf:
+            queue.put(book_proc_dto)
+
+    logger.info(f"Finished getting all shelves plopping the sentinel on there")
+    queue.put(None)
+    logger.info(f"Finished getting all shelves")
 
 
-def main():
+def process_book(args, queue, dlq):
+    """Process 2: Takes from the queue and processes data."""
+    while True:
+        book_proc_dto = queue.get()
+        if book_proc_dto is None:
+            break  # Stop the loop if None is received, exit process
+
+        logger.debug(f"Processing {book_proc_dto['id']}")
+        book_file_path = os.path.join(args.output_dir, f"{book_proc_dto['id']}.json")
+
+        try:
+            if os.path.exists(book_file_path):
+                logger.debug(f'File {book_file_path} exists, loading and updating')
+                with open(book_file_path, 'r') as book_file:
+                    existing_book = json.load(book_file)
+                existing_book.get('shelves', []).append(book_proc_dto['shelves'])
+                book_scrape_dto = existing_book
+            else:
+                try:
+                    logger.debug(f'File {book_file_path} does not exist, scraping')
+                    book_scrape_dto = scrape_book(book_proc_dto["id"], args)
+                except Exception as e:
+                    logger.warning(f"Error scraping book {book_proc_dto['id']}")
+                    dlq.put((book_proc_dto, e))
+                    continue
+
+            with open(book_file_path, 'w') as book_file:
+                json.dump(book_scrape_dto, book_file, indent=2)
+        except IOError as e:
+            logger.warning(f"Error processing file {book_file_path}")
+
+
+def dump_queue(queue):
+    """
+    Empties all pending items in a queue and returns them in a list.
+    """
+    result = []
+    for i in iter(queue.get, None):
+        result.append(i)
+    # not necessary but releases the GIL
+    time.sleep(.1)
+    return result
+
+
+if __name__ == "__main__":
+
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--user_id",
@@ -66,64 +116,51 @@ def main():
     parser.add_argument("--exclude_shelves", type=list, default=[])
     parser.add_argument("--skip_shelves", type=bool, default=False)
     parser.add_argument("--skip_authors", type=bool, default=False)
+    parser.add_argument("--max_pages", type=bool, default=None)
 
     args = parser.parse_args()
+    with Timer():
+        if not os.path.exists(args.output_dir):
+            os.makedirs(args.output_dir)
+            print(f"Directory '{args.output_dir}' was created.")
+        else:
+            print(f"Directory '{args.output_dir}' already exists.")
 
-    # args.output_dir = (
-    #     args.output_dir if args.output_dir.endswith("/") else args.output_dir + "/"
-    # )
+        book_proc_queue = multiprocessing.Queue()
+        dlq = multiprocessing.Queue()
 
-    # os.makedirs(args.output_dir, exist_ok=True)
+        # List to keep track of processes
+        processes = []
+        num_process_book_workers = 10
 
-    book_list = set()
-    shelf_mapping_data = []
-    futures = shelves.get_all_shelves_threaded(
-        args,
-        exclude_shelves=["to-read"],
-    )
-    # logger.info(f"Shelves futures: {futures}")
-    for future in as_completed(futures):
-        books_on_shelf, book_shelf_mapping_data_part = future.result()
-        books_on_shelf = set(books_on_shelf)
-        shelf_mapping_data.append(book_shelf_mapping_data_part)
-
-    merged_books = defaultdict(list)
-
-    print()
-    
-    # for book in list(book_list):
-    #     print(book)
-    #     for key, value in book.items():
-    #         merged_books[key].extend(value)
-    
-    # with open(f"{args.output_dir}/merged_books.json", "w") as file:
-    #     json.dump(merged_books, fp=file, indent=2)
-
-    # num_threads = 5  # Adjust as needed
-
-    # book_futures = []
-    # with ThreadPoolExecutor(max_workers=num_threads) as executor:
-    #     # Submit tasks to the executor
-    #     for book_id in books_queue.queue:
-    #         logger.info(f"Adding book '{book_id}' to thread pool.")
-    #         bf = executor.submit(books.scrape_book, book_id, args)
-    #         book_futures.append(bf)
-
-    #     try:
-    #         result = future.result()
-    #         with open(f"./output/{result['id']}", "w") as file:
-    #             json.dump(result, fp=file, indent=2)
-    #             # storyProcessBar.set_description(
-    #             #     f"Processed {result.get('title', 'UNKNOWN'):<30}"
-    #             # )
-    #             # storyProcessBar.update()
-    #     except Exception as e:
-    #         logger.error(
-    #             "something got fucked up",
-    #             e
-    #             # f"Processing of story {title} at {url} raised an exception: {e}"
-    #         )
+        # Creating construct_library worker processes
+        p = multiprocessing.Process(target=construct_library, args=(args, book_proc_queue))
+        # processes.append(p)
+        p.start()
+        p.join()
+        book_proc_queue.put(None)
 
 
-if __name__ == "__main__":
-    main()
+
+        # Creating process_book worker processes
+        for _ in range(num_process_book_workers):
+            p = multiprocessing.Process(target=process_book, args=(args, book_proc_queue, dlq))
+            processes.append(p)
+            p.start()
+
+        # Wait for all processes to complete
+        for p in processes:
+            p.join()
+
+    dlq.put(None)
+    logger.info(f"Finished processing all books")
+
+    failures = dump_queue(dlq)
+    logger.warning(f"The following could not be processed", len([f[0] for f in failures]))
+    with open('failures.json', 'w') as failures_file:
+        json.dump({"failed_book_ids": failures}, failures_file, indent=2)
+
+    # finalize_data = dict_merg
+
+    # Signal process 2 to stop
+    # book_proc_queue.put(None)

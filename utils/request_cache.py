@@ -2,9 +2,11 @@ import pickle
 import logging
 import hashlib
 
+# dont use this one, use the cache decorator instead
+
 
 class RequestCache:
-    
+
     def __init__(self, filename):
         self.filename = filename
         self.cache = self.load()

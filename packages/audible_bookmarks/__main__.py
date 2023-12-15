@@ -122,11 +122,11 @@ def construct_library():
 
 # 0. login and get cookie
 # 1: go to bookmarks page
-# 2: create map of book marks with timeframe
+# 2: create map of bookmarks with timeframe
 # 3: go to bookmark
-# 4: start playing
+# 4: start playing (start timer)
 # 5: start audio recording of stream
-# 6: wait for bookmark to finish
+# 6: wait for bookmark to finish (audio stops or timer runs out
 # 7: stop audio recording
 # 8: save audio recording to file
 # 9: repeat for all bookmarks

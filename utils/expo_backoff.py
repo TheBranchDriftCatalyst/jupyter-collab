@@ -2,9 +2,15 @@ import time
 import random
 import functools
 import contextlib
+from logging import getLogger
+
+logger = getLogger(__name__)
+
+logger.setLevel("DEBUG")
+
 
 class ExpoBackoff:
-    def __init__(self, delay=10, backoff_factor=2, max_attempts=5, jitter=None, on_error=Exception):
+    def __init__(self, delay=20, backoff_factor=2, max_attempts=5, jitter=None, on_error=Exception):
         self.delay = delay
         self.backoff_factor = backoff_factor
         self.max_attempts = max_attempts
@@ -19,6 +25,7 @@ class ExpoBackoff:
                 yield
                 break
             except self.on_error:
+                logger.warning(f"Error occurred. Retrying in {self.delay} seconds. attempt={attempt} of {self.max_attempts}")
                 attempt += 1
                 sleep_time = self.delay * (self.backoff_factor ** attempt)
                 sleep_time += self.jitter()

@@ -1,5 +1,11 @@
 import time
 import functools
+from logging import getLogger
+
+logger = getLogger(__name__)
+
+logger.setLevel("DEBUG")
+
 
 class Timer:
     def __enter__(self):
@@ -9,7 +15,7 @@ class Timer:
     def __exit__(self, *args):
         self.end = time.time()
         self.interval = self.end - self.start
-        print(f"Elapsed time: {self.interval:.2f} seconds")
+        logger.info(f"Elapsed time: {self.interval:.2f} seconds")
 
     def __call__(self, func):
         @functools.wraps(func)
