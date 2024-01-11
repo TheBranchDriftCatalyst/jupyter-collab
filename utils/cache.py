@@ -1,52 +1,84 @@
 import threading
-import pickle
 import os
-from functools import wraps
+import functools
+import json
+import pickle
 
 
-def cache_decorator(key_getter=None, filename=None):
-    def decorator(func):
-        cache = {}
-        lock = threading.Lock()
+class GenericCache:
+    def __init__(self, filename):
+        self.filename = filename
+        self.cache = {}
+        self.lock = threading.Lock()
 
-        # Load existing cache from file if filename is provided
-        if filename and os.path.exists(filename):
-            with open(filename, 'rb') as file:
-                cache = pickle.load(file)
+        # Infer serialization type from file extension
+        _, file_extension = os.path.splitext(filename)
+        if file_extension in ['.pkl', '.pickle']:
+            self.serialization_type = 'pickle'
+        elif file_extension in ['.json']:
+            self.serialization_type = 'json'
+        else:
+            raise ValueError("Unsupported file type. Please use .pkl, .pickle, or .json")
 
-        @wraps(func)
+        self._load_cache()
+
+    def _load_cache(self):
+        if os.path.exists(self.filename):
+            with open(self.filename, 'rb' if self.serialization_type == 'pickle' else 'r') as file:
+                self.cache = self._deserialize(file)
+
+    def _serialize(self, file):
+        if self.serialization_type == 'pickle':
+            pickle.dump(self.cache, file)
+        elif self.serialization_type == 'json':
+            json.dump(self.cache, file, indent=2)
+
+    def _deserialize(self, file):
+        if self.serialization_type == 'pickle':
+            return pickle.load(file)
+        elif self.serialization_type == 'json':
+            return json.load(file)
+        return {}
+
+    def _write_cache(self):
+        with open(self.filename, 'wb' if self.serialization_type == 'pickle' else 'w') as file:
+            self._serialize(file)
+
+    def __call__(self, func, key_getter=None):
+        @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            if key_getter:
-                key = key_getter(*args, **kwargs)
-            else:
-                key = (args, frozenset(kwargs.items()))
+            key = key_getter(*args, **kwargs) if key_getter else (args, frozenset(kwargs.items()))
 
-            with lock:
-                if key not in cache:
-                    cache[key] = func(*args, **kwargs)
-                    # Save updated cache to file
-                    if filename:
-                        with open(filename, 'wb') as c_file:
-                            pickle.dump(cache, c_file)
-
-            return cache[key]
-
+            with self.lock:
+                if key not in self.cache:
+                    self.cache[key] = func(*args, **kwargs)
+                    self._write_cache()
+            return self.cache[key]
         return wrapper
 
-    return decorator
+    def __enter__(self):
+        return self
 
-# # Usage examples
-# @cache_decorator(filename='square_cache.pkl')
+    def get(self, key):
+        return self.cache.get(key, None)
+
+    def set(self, key, value):
+        with self.lock:
+            self.cache[key] = value
+            self._write_cache()
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        # Any cleanup if needed when exiting the context
+        pass  # Cache is saved in set, so no action needed here
+
+# # Usage as decorator with pickle serialization:
+# @GenericCache('square_cache.pkl')
 # def compute_square(x):
 #     return x * x
 #
-# @cache_decorator(key_getter=lambda x: x, filename='cube_cache.pkl')
-# def compute_cube(x):
-#     return x * x * x
-#
-# # Using the decorators
-# result1 = compute_square(4)  # Computed and cached
-# result2 = compute_square(4)  # Retrieved from cache or file
-#
-# result3 = compute_cube(3)    # Computed and cached
-# result4 = compute_cube(3)    # Retrieved from cache or file
+# # Usage as context manager with json serialization:
+# with GenericCache('generic_cache.json') as cache:
+#     book = cache.get('some_key')
+#     if book is None:
+#         book = "data from scrape_book or other sources"
+#         cache.set('some_key', book)

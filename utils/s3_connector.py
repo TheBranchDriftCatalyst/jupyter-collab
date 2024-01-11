@@ -10,7 +10,7 @@ import mimetypes
 from minio import Minio
 from minio.error import InvalidResponseError
 
-
+# these are local dev credentials not an issue being exposed
 access_key = "BPtnRYnuDVHVLg7j"
 secret_key = "UzbTKQaofqzZT391e26hWO9Rljt0AuFR"
 

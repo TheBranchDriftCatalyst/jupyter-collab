@@ -1,13 +1,10 @@
+import contextlib
 import time
 import random
 import functools
-import contextlib
-from logging import getLogger
+import logging
 
-logger = getLogger(__name__)
-
-logger.setLevel("DEBUG")
-
+logger = logging.getLogger(__name__)
 
 class ExpoBackoff:
     def __init__(self, delay=20, backoff_factor=2, max_attempts=5, jitter=None, on_error=Exception):
@@ -23,13 +20,19 @@ class ExpoBackoff:
         while attempt < self.max_attempts:
             try:
                 yield
-                break
-            except self.on_error:
-                logger.warning(f"Error occurred. Retrying in {self.delay} seconds. attempt={attempt} of {self.max_attempts}")
+                return  # Make sure to return after successful execution
+            except self.on_error as e:
                 attempt += 1
+                if attempt >= self.max_attempts:
+                    logger.error(f"Max attempts reached. Last error: {e}")
+                    raise  # Re-raise the exception to propagate the error
+                logger.warning(f"Error occurred. Retrying in {self.delay} seconds. attempt={attempt} of {self.max_attempts}")
+                logger.error("Error occurred", exc_info=True)
                 sleep_time = self.delay * (self.backoff_factor ** attempt)
                 sleep_time += self.jitter()
                 time.sleep(sleep_time)
+        # Log if exited loop without success
+        logger.error("Exited retry loop without success. This might be unexpected.")
 
     def __call__(self, func):
         @functools.wraps(func)
@@ -37,13 +40,3 @@ class ExpoBackoff:
             with self.context():
                 return func(*args, **kwargs)
         return wrapper
-
-# # Usage as a context manager
-# with ExpoBackoff(delay=1, max_attempts=3, on_error=ValueError).context() as backoff:
-#     # Code that might throw a ValueError
-
-
-# # Usage as a decorator
-# @ExpoBackoff(delay=1, max_attempts=3, on_error=ValueError)
-# def some_function():
-#     # Function implementation

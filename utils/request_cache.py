@@ -2,11 +2,13 @@ import pickle
 import logging
 import hashlib
 
+from numpy import deprecate
+
 # dont use this one, use the cache decorator instead
 
 
 class RequestCache:
-
+    @deprecate(message="Use the cache decorator instead")
     def __init__(self, filename):
         self.filename = filename
         self.cache = self.load()
