@@ -1,4 +1,4 @@
-.envrc
+.env
 volumes/*
 cookies.json
 **/goodreads-data/*

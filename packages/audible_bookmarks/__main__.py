@@ -18,7 +18,8 @@ COOKIE_SAVE_LOC = "./cookies.json"
 
 
 #  This can be found by going into chrome on the webpage and copying a network request
-#  to fetch or curl
+#  to fetch or curl, not too worried about this session data, its goodreads... and will
+#  expire shortly
 HEADERS = {
     # "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
     # "accept-language": "en-US,en;q=0.9",
@@ -43,7 +44,7 @@ AudibleBookURI = lambda asin: f"https://www.audible.com/webplayer?asin={asin}"
 LibraryURI = lambda page: f"https://www.audible.com/library/titles?page={page}"
 ADBL_LOGIN_URI = "https://www.audible.com/signin?userType=adbl"
 
-driver = webdriver.Chrome()  # or use another driver
+# driver = webdriver.Chrome()  # or use another driver
 options = Options()
 # if headless:
 #     options.add_argument("--headless")  # Run in headless mode (no browser UI)

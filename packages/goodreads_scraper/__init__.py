@@ -3,7 +3,7 @@ __version__ = "1.1.0"
 import logging
 
 
-def setup_logging():
+def setup_logging() -> None:
     # Configure the root logger to log at DEBUG level
     # Include thread name in the log format
     logging.basicConfig(level=logging.DEBUG,
@@ -15,9 +15,10 @@ def setup_logging():
 setup_logging()
 
 
-logging.debug("This is a debug message")
-logging.info("This is an info message")
-logging.warning("This is a warning message")
-logging.error("This is an error message")
-logging.critical("This is a critical message")
+def test_logging() -> None:
+    logging.debug("This is a debug message")
+    logging.info("This is an info message")
+    logging.warning("This is a warning message")
+    logging.error("This is an error message")
+    logging.critical("This is a critical message")
 

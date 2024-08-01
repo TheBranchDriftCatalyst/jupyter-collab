@@ -7,6 +7,8 @@ from typing import Union, Tuple
 from urllib.request import urlopen
 from bs4 import BeautifulSoup
 from argparse import Namespace
+
+from packages.goodreads_scraper.dtos import GoodreadsBookDTO
 from utils.expo_backoff import ExpoBackoff
 from logging import getLogger
 
@@ -17,7 +19,8 @@ logger = getLogger(__name__)
 # We will upsert any new books that we find for the series.  We will not do anything,
 # i.e., skip the process story procedure if the book already exists in the database.
 
-def get_genres(soup):
+
+def get_genres(soup: BeautifulSoup) -> list[str]:
     genres = []
     for node in soup.find_all("div", {"class": "left"}):
         current_genres = node.find_all(
@@ -29,7 +32,7 @@ def get_genres(soup):
     return genres
 
 
-def series_profile(soup) -> Tuple[Union[dict, None], Union[float, None]]:
+def series_profile(soup: BeautifulSoup) -> Tuple[Union[dict, None], Union[float, None]]:
     series_link = soup.find("a", attrs={"href": re.compile(r"/series/\d+")})
 
     if not series_link:
@@ -68,7 +71,7 @@ def series_profile(soup) -> Tuple[Union[dict, None], Union[float, None]]:
 # Example usage
 
 
-def get_rating_distribution(soup):
+def get_rating_distribution(soup) -> dict[int, int]:
     distribution = re.findall(r"renderRatingGraph\([\s]*\[[0-9,\s]+", str(soup))[0]
     distribution = " ".join(distribution.split())
     distribution = [int(c.strip()) for c in distribution.split("[")[1].split(",")]
@@ -82,7 +85,7 @@ def get_rating_distribution(soup):
     return distribution_dict
 
 
-def author_profile(soup):
+def author_profile(soup: BeautifulSoup) -> dict[str, str]:
     return dict(
         {
             "name": soup.find("span", attrs={"data-testid": "name"}).text,
@@ -119,11 +122,11 @@ def get_int_from_text(soup_element):
                 .replace(",", "")
             )
     except Exception as e:
-        logger.error(f"Error getting int from text")
+        logger.warning(f"Error getting int from text", exc_info=True)
         return 0
 
 
-def scrape_book(book_id: str, args: Namespace = None):
+def scrape_book(book_id: str, args: Namespace) -> GoodreadsBookDTO:
     if args is None:
         args = {'skip_authors': False, 'skip_shelves': False, 'skip_user_info': False}
 
@@ -141,7 +144,7 @@ def scrape_book(book_id: str, args: Namespace = None):
 
     series_prof, num_in_series = series_profile(soup)
 
-    return {
+    return GoodreadsBookDTO(**{
         "id": book_id,
         "title": soup.find("h1", attrs={"data-testid": "bookTitle"}).text,
         "description": soup.find("div", {"data-testid": "description"}).text,
@@ -158,4 +161,4 @@ def scrape_book(book_id: str, args: Namespace = None):
         # "average_rating": float(
         #     soup.find("span", {"itemprop": "ratingValue"}).text.strip()
         # ),
-    }
+    })

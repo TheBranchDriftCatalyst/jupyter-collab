@@ -22,29 +22,30 @@ class GenericCache:
 
         self._load_cache()
 
-    def _load_cache(self):
+    def _load_cache(self) -> None
         if os.path.exists(self.filename):
             with open(self.filename, 'rb' if self.serialization_type == 'pickle' else 'r') as file:
                 self.cache = self._deserialize(file)
 
-    def _serialize(self, file):
+
+    def _serialize(self, file) -> None:
         if self.serialization_type == 'pickle':
             pickle.dump(self.cache, file)
         elif self.serialization_type == 'json':
             json.dump(self.cache, file, indent=2)
 
-    def _deserialize(self, file):
+    def _deserialize(self, file) -> dict
         if self.serialization_type == 'pickle':
             return pickle.load(file)
         elif self.serialization_type == 'json':
             return json.load(file)
         return {}
 
-    def _write_cache(self):
+    def _write_cache(self) -> None:
         with open(self.filename, 'wb' if self.serialization_type == 'pickle' else 'w') as file:
             self._serialize(file)
 
-    def __call__(self, func, key_getter=None):
+    def __call__(self, func, key_getter=None) -> callable:
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             key = key_getter(*args, **kwargs) if key_getter else (args, frozenset(kwargs.items()))
